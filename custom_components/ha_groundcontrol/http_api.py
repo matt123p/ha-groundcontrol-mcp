@@ -38,6 +38,9 @@ class GroundControlServer:
         self.app.router.add_get(f"{API_BASE_PATH}/", self.handle_sse)
         self.app.router.add_get(f"{API_BASE_PATH}/sse", self.handle_sse)
         self.app.router.add_post(f"{API_BASE_PATH}/messages", self.handle_post_message)
+        # Direct HTTP POST Endpoints (Streamable HTTP)
+        self.app.router.add_post(API_BASE_PATH, self.handle_post_direct)
+        self.app.router.add_post(f"{API_BASE_PATH}/", self.handle_post_direct)
 
         self.runner = AppRunner(self.app)
         self.site: TCPSite | None = None
@@ -76,8 +79,10 @@ class GroundControlServer:
         )
         await response.prepare(request)
 
-        # Send the client endpoint details where it should POST JSON-RPC payloads
-        post_endpoint = f"{API_BASE_PATH}/messages?session_id={session_id}"
+        # Send the client endpoint details where it should POST JSON-RPC payloads (absolute URL is more robust)
+        scheme = request.headers.get("X-Forwarded-Proto", "https" if request.secure else "http")
+        host = request.headers.get("X-Forwarded-Host", request.headers.get("Host", f"{self.host}:{self.port}"))
+        post_endpoint = f"{scheme}://{host}{API_BASE_PATH}/messages?session_id={session_id}"
         await response.write(f"event: endpoint\ndata: {post_endpoint}\n\n".encode())
 
         self.connections[session_id] = response
@@ -113,11 +118,128 @@ class GroundControlServer:
 
         return web.Response(text="Accepted", status=202)
 
-    async def process_json_rpc(self, session_id: str, payload: dict) -> None:
-        conn = self.connections.get(session_id)
-        if not conn:
-            return
+    def _get_tools(self) -> list[dict]:
+        return [
+            {
+                "name": "get_areas",
+                "description": (
+                    "Allows understanding the physical layout of the house so you can group code properly. "
+                    "Returns a list of areas with area_id and name."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "search_string": {
+                            "type": "string",
+                            "description": "Optional query to search areas by name."
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_entities",
+                "description": (
+                    "Retrieve entity registry metadata without live state. "
+                    "Extremely critical to get the exact entity_id."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "domain": {
+                            "type": "string",
+                            "description": "Optional filter by domain (e.g. light, switch)."
+                        },
+                        "area_id": {
+                            "type": "string",
+                            "description": "Optional filter by area ID."
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_devices",
+                "description": (
+                    "Retrieve device registry metadata to understand the hardware tree. "
+                    "Devices group entities together."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "area_id": {
+                            "type": "string",
+                            "description": "Optional filter by area ID."
+                        },
+                        "manufacturer": {
+                            "type": "string",
+                            "description": "Optional filter by manufacturer."
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_people",
+                "description": "Retrieve defined Home Assistant people entries.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "search_string": {
+                            "type": "string",
+                            "description": "Optional filter by name or ID."
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_services",
+                "description": (
+                    "Exposes the schema for how to trigger things in Home Assistant (e.g. toggle, turn_on, etc.)."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "domain": {
+                            "type": "string",
+                            "description": "Optional filter by domain (e.g. light)."
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get_event_types",
+                "description": "List registered custom event types from the Home Assistant event bus.",
+                "inputSchema": {
+                    "type": "object"
+                }
+            },
+            {
+                "name": "search_configuration",
+                "description": (
+                    "Fuzzy-search tool. Pass a search query and get back matching areas, devices, people, and entities."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The fuzzy search query (e.g. 'printer', 'living room')."
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "get_esphome_secrets_keys",
+                "description": (
+                    "Expose keys (without values) from the user's secrets.yaml. "
+                    "Useful to avoid hardcoding secrets in generated YAML configs."
+                ),
+                "inputSchema": {
+                    "type": "object"
+                }
+            }
+        ]
 
+    async def _process_payload(self, payload: dict) -> dict:
         method = payload.get("method")
         msg_id = payload.get("id")
 
@@ -131,167 +253,87 @@ class GroundControlServer:
                 resp["result"] = result
             return resp
 
+        if method == "initialize":
+            result = {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": "HA GroundControl MCP",
+                    "version": INTEGRATION_VERSION,
+                }
+            }
+            return make_response(result=result)
+
+        elif method == "notifications/initialized":
+            return make_response(result={})
+
+        elif method == "tools/list":
+            return make_response(result={"tools": self._get_tools()})
+
+        elif method == "tools/call":
+            params = payload.get("params", {})
+            name = params.get("name")
+            arguments = params.get("arguments", {})
+
+            tool_result = await self.call_mcp_tool(name, arguments)
+            return make_response(result=tool_result)
+
+        else:
+            error = {
+                "code": -32601,
+                "message": f"Method not found: {method}"
+            }
+            return make_response(error=error)
+
+    async def process_json_rpc(self, session_id: str, payload: dict) -> None:
+        conn = self.connections.get(session_id)
+        if not conn:
+            return
+
         try:
-            if method == "initialize":
-                result = {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "tools": {}
-                    },
-                    "serverInfo": {
-                        "name": "HA GroundControl MCP",
-                        "version": INTEGRATION_VERSION,
-                    }
-                }
-                await self.send_to_sse(conn, make_response(result=result))
-
-            elif method == "notifications/initialized":
-                pass
-
-            elif method == "tools/list":
-                tools = [
-                    {
-                        "name": "get_areas",
-                        "description": (
-                            "Allows understanding the physical layout of the house so you can group code properly. "
-                            "Returns a list of areas with area_id and name."
-                        ),
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "search_string": {
-                                    "type": "string",
-                                    "description": "Optional query to search areas by name."
-                                }
-                            }
-                        }
-                    },
-                    {
-                        "name": "get_entities",
-                        "description": (
-                            "Retrieve entity registry metadata without live state. "
-                            "Extremely critical to get the exact entity_id."
-                        ),
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "domain": {
-                                    "type": "string",
-                                    "description": "Optional filter by domain (e.g. light, switch)."
-                                },
-                                "area_id": {
-                                    "type": "string",
-                                    "description": "Optional filter by area ID."
-                                }
-                            }
-                        }
-                    },
-                    {
-                        "name": "get_devices",
-                        "description": (
-                            "Retrieve device registry metadata to understand the hardware tree. "
-                            "Devices group entities together."
-                        ),
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "area_id": {
-                                    "type": "string",
-                                    "description": "Optional filter by area ID."
-                                },
-                                "manufacturer": {
-                                    "type": "string",
-                                    "description": "Optional filter by manufacturer."
-                                }
-                            }
-                        }
-                    },
-                    {
-                        "name": "get_people",
-                        "description": "Retrieve defined Home Assistant people entries.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "search_string": {
-                                    "type": "string",
-                                    "description": "Optional filter by name or ID."
-                                }
-                            }
-                        }
-                    },
-                    {
-                        "name": "get_services",
-                        "description": (
-                            "Exposes the schema for how to trigger things in Home Assistant (e.g. toggle, turn_on, etc.)."
-                        ),
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "domain": {
-                                    "type": "string",
-                                    "description": "Optional filter by domain (e.g. light)."
-                                }
-                            }
-                        }
-                    },
-                    {
-                        "name": "get_event_types",
-                        "description": "List registered custom event types from the Home Assistant event bus.",
-                        "inputSchema": {
-                            "type": "object"
-                        }
-                    },
-                    {
-                        "name": "search_configuration",
-                        "description": (
-                            "Fuzzy-search tool. Pass a search query and get back matching areas, devices, people, and entities."
-                        ),
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "query": {
-                                    "type": "string",
-                                    "description": "The fuzzy search query (e.g. 'printer', 'living room')."
-                                }
-                            },
-                            "required": ["query"]
-                        }
-                    },
-                    {
-                        "name": "get_esphome_secrets_keys",
-                        "description": (
-                            "Expose keys (without values) from the user's secrets.yaml. "
-                            "Useful to avoid hardcoding secrets in generated YAML configs."
-                        ),
-                        "inputSchema": {
-                            "type": "object"
-                        }
-                    }
-                ]
-                await self.send_to_sse(conn, make_response(result={"tools": tools}))
-
-            elif method == "tools/call":
-                params = payload.get("params", {})
-                name = params.get("name")
-                arguments = params.get("arguments", {})
-
-                tool_result = await self.call_mcp_tool(name, arguments)
-                await self.send_to_sse(conn, make_response(result=tool_result))
-
-            else:
-                error = {
-                    "code": -32601,
-                    "message": f"Method not found: {method}"
-                }
-                await self.send_to_sse(conn, make_response(error=error))
-
+            response_data = await self._process_payload(payload)
+            await self.send_to_sse(conn, response_data)
         except Exception as e:
             _LOGGER.exception("Error processing MCP JSON-RPC payload")
-            error = {
-                "code": -32603,
-                "message": f"Internal error: {str(e)}"
+            msg_id = payload.get("id") if isinstance(payload, dict) else None
+            error_resp = {
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32603,
+                    "message": f"Internal error: {str(e)}"
+                }
             }
-            await self.send_to_sse(conn, make_response(error=error))
+            if msg_id is not None:
+                error_resp["id"] = msg_id
+            await self.send_to_sse(conn, error_resp)
+
+    async def handle_post_direct(self, request: Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.Response(text="Unauthorized", status=401)
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.Response(text="Invalid JSON", status=400)
+
+        try:
+            response_data = await self._process_payload(body)
+            return web.json_response(response_data)
+        except Exception as e:
+            _LOGGER.exception("Error processing direct MCP JSON-RPC payload")
+            msg_id = body.get("id") if isinstance(body, dict) else None
+            error_resp = {
+                "jsonrpc": "2.0",
+                "error": {
+                    "code": -32603,
+                    "message": f"Internal error: {str(e)}"
+                }
+            }
+            if msg_id is not None:
+                error_resp["id"] = msg_id
+            return web.json_response(error_resp, status=500)
 
     async def call_mcp_tool(self, name: str, arguments: dict) -> dict:
         try:
