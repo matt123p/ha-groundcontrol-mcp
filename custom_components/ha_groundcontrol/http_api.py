@@ -20,10 +20,11 @@ from .helpers import (
 
 
 class GroundControlServer:
-    def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
+    def __init__(self, hass: HomeAssistant, host: str, port: int, auth_token: str | None = None) -> None:
         self.hass = hass
         self.host = host
         self.port = port
+        self.auth_token = auth_token
         self.app = web.Application()
         self.app.router.add_get(API_BASE_PATH, self.handle_request)
         self.app.router.add_get(f"{API_BASE_PATH}/", self.handle_request)
@@ -42,6 +43,14 @@ class GroundControlServer:
         await self.runner.cleanup()
 
     async def handle_request(self, request: Request) -> web.Response:
+        if self.auth_token:
+            auth_header = request.headers.get("Authorization")
+            if not auth_header or not auth_header.startswith("Bearer "):
+                return web.json_response({"error": "Unauthorized"}, status=401)
+            token = auth_header.split(" ", 1)[1].strip()
+            if token != self.auth_token:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
         resource = request.match_info.get("resource")
 
         if not resource:

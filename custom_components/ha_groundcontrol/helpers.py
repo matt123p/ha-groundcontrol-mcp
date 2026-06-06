@@ -18,7 +18,7 @@ async def async_get_areas(hass: HomeAssistant, search_string: str | None = None)
     area_registry = ar.async_get(hass)
     areas = [
         {
-            "area_id": area.area_id,
+            "area_id": getattr(area, "id", getattr(area, "area_id", None)),
             "name": area.name,
         }
         for area in area_registry.async_list_areas()

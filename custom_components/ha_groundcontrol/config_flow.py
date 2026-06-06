@@ -7,6 +7,7 @@ from homeassistant.core import callback
 from .const import (
     CONF_LISTEN_HOST,
     CONF_LISTEN_PORT,
+    CONF_AUTH_TOKEN,
     DEFAULT_LISTEN_HOST,
     DEFAULT_LISTEN_PORT,
     DOMAIN,
@@ -30,6 +31,7 @@ class GroundControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     {
                         vol.Optional(CONF_LISTEN_HOST, default=DEFAULT_LISTEN_HOST): str,
                         vol.Optional(CONF_LISTEN_PORT, default=DEFAULT_LISTEN_PORT): int,
+                        vol.Optional(CONF_AUTH_TOKEN, default=""): str,
                     }
                 ),
             )
@@ -59,6 +61,10 @@ class GroundControlOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_LISTEN_PORT,
                     self.config_entry.data.get(CONF_LISTEN_PORT, DEFAULT_LISTEN_PORT),
                 ),
+                CONF_AUTH_TOKEN: self.config_entry.options.get(
+                    CONF_AUTH_TOKEN,
+                    self.config_entry.data.get(CONF_AUTH_TOKEN, ""),
+                ),
             }
             return self.async_show_form(
                 step_id="init",
@@ -66,6 +72,7 @@ class GroundControlOptionsFlowHandler(config_entries.OptionsFlow):
                     {
                         vol.Optional(CONF_LISTEN_HOST, default=current_options[CONF_LISTEN_HOST]): str,
                         vol.Optional(CONF_LISTEN_PORT, default=current_options[CONF_LISTEN_PORT]): int,
+                        vol.Optional(CONF_AUTH_TOKEN, default=current_options[CONF_AUTH_TOKEN]): str,
                     }
                 ),
             )

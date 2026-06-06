@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 from .const import (
     CONF_LISTEN_HOST,
     CONF_LISTEN_PORT,
+    CONF_AUTH_TOKEN,
     DEFAULT_LISTEN_HOST,
     DEFAULT_LISTEN_PORT,
     DOMAIN,
@@ -27,8 +28,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     options = {**entry.data, **entry.options}
     host = options.get(CONF_LISTEN_HOST, DEFAULT_LISTEN_HOST)
     port = options.get(CONF_LISTEN_PORT, DEFAULT_LISTEN_PORT)
+    auth_token = options.get(CONF_AUTH_TOKEN)
 
-    server = GroundControlServer(hass, host, port)
+    server = GroundControlServer(hass, host, port, auth_token)
     try:
         await server.start()
     except Exception as err:
