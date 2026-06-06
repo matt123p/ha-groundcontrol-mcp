@@ -9,7 +9,6 @@ from homeassistant.helpers import (
     area_registry as ar,
     device_registry as dr,
     entity_registry as er,
-    person as pr,
 )
 
 from .const import API_BASE_PATH, INTEGRATION_VERSION
@@ -93,34 +92,108 @@ async def async_get_people(
     search_string: str | None = None,
 ) -> list[dict[str, Any]]:
     import inspect
-    if hasattr(pr, "async_get_registry"):
-        person_registry = await pr.async_get_registry(hass)
-    else:
-        person_registry = pr.async_get(hass)
-        if inspect.isawaitable(person_registry):
-            person_registry = await person_registry
     people = []
+    raw_persons = []
 
-    persons = getattr(person_registry, "persons", None)
-    if persons is None:
-        persons = getattr(person_registry, "people", None)
-    if persons is None and hasattr(person_registry, "async_list_people"):
-        persons = person_registry.async_list_people()
-    if persons is None:
-        persons = []
-    if isinstance(persons, dict):
-        persons = persons.values()
+    # Method 1: Try using the internal person component storage collection in hass.data
+    person_data = hass.data.get("person")
+    if person_data:
+        if hasattr(person_data, "async_items"):
+            try:
+                res = person_data.async_items()
+                if inspect.isawaitable(res):
+                    raw_persons = await res
+                else:
+                    raw_persons = res
+            except Exception:
+                pass
+        elif hasattr(person_data, "items"):
+            try:
+                raw_persons = list(person_data.items())
+            except Exception:
+                pass
 
-    for entry in persons:
-        people.append(
-            {
-                "person_id": getattr(entry, "person_id", None),
-                "name": getattr(entry, "name", None),
-                "user_id": getattr(entry, "user_id", None),
-                "area_id": getattr(entry, "area_id", None),
-                "device_id": getattr(entry, "device_id", None),
-            }
-        )
+    # Method 2: Fallback to importing components.person or helpers.person dynamically
+    if not raw_persons:
+        person_mod = None
+        try:
+            from homeassistant.components import person as person_mod
+        except ImportError:
+            try:
+                from homeassistant.helpers import person as person_mod
+            except ImportError:
+                pass
+
+        if person_mod:
+            try:
+                if hasattr(person_mod, "async_get_registry"):
+                    reg = await person_mod.async_get_registry(hass)
+                elif hasattr(person_mod, "async_get"):
+                    reg = person_mod.async_get(hass)
+                    if inspect.isawaitable(reg):
+                        reg = await reg
+                else:
+                    reg = None
+
+                if reg:
+                    persons_list = getattr(reg, "persons", None)
+                    if persons_list is None:
+                        persons_list = getattr(reg, "people", None)
+                    if persons_list is None and hasattr(reg, "async_list_people"):
+                        persons_list = reg.async_list_people()
+                        if inspect.isawaitable(persons_list):
+                            persons_list = await persons_list
+
+                    if persons_list:
+                        if isinstance(persons_list, dict):
+                            raw_persons = list(persons_list.values())
+                        else:
+                            raw_persons = list(persons_list)
+            except Exception:
+                pass
+
+    # Process extracted raw person items (from Method 1 or Method 2)
+    if raw_persons:
+        for entry in raw_persons:
+            if isinstance(entry, dict):
+                person_id = entry.get("id") or entry.get("person_id")
+                name = entry.get("name")
+                user_id = entry.get("user_id")
+                area_id = entry.get("area_id")
+                device_id = entry.get("device_id")
+            else:
+                person_id = getattr(entry, "id", None) or getattr(entry, "person_id", None)
+                name = getattr(entry, "name", None)
+                user_id = getattr(entry, "user_id", None)
+                area_id = getattr(entry, "area_id", None)
+                device_id = getattr(entry, "device_id", None)
+
+            people.append(
+                {
+                    "person_id": person_id,
+                    "name": name,
+                    "user_id": user_id,
+                    "area_id": area_id,
+                    "device_id": device_id,
+                }
+            )
+
+    # Method 3: Ultimate fallback using the Home Assistant State Machine
+    if not people:
+        try:
+            states = hass.states.async_all("person")
+            for state in states:
+                people.append(
+                    {
+                        "person_id": state.entity_id.split(".", 1)[1],
+                        "name": state.name,
+                        "user_id": state.attributes.get("user_id"),
+                        "area_id": None,
+                        "device_id": None,
+                    }
+                )
+        except Exception:
+            pass
 
     if search_string:
         query = search_string.lower()
