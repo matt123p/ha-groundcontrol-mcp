@@ -9,7 +9,7 @@ from homeassistant.helpers import (
     area_registry as ar,
     device_registry as dr,
     entity_registry as er,
-    person_registry as pr,
+    person as pr,
 )
 
 from .const import API_BASE_PATH, INTEGRATION_VERSION
@@ -92,7 +92,13 @@ async def async_get_people(
     hass: HomeAssistant,
     search_string: str | None = None,
 ) -> list[dict[str, Any]]:
-    person_registry = pr.async_get(hass)
+    import inspect
+    if hasattr(pr, "async_get_registry"):
+        person_registry = await pr.async_get_registry(hass)
+    else:
+        person_registry = pr.async_get(hass)
+        if inspect.isawaitable(person_registry):
+            person_registry = await person_registry
     people = []
 
     persons = getattr(person_registry, "persons", None)
