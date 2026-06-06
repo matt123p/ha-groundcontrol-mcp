@@ -2,7 +2,7 @@
   "domain": "ha_groundcontrol",
   "name": "HA GroundControl",
   "version": "0.1.0",
-  "documentation": "https://github.com/ha-groundcontrol-mcp",
+  "documentation": "https://github.com/matt123p/ha-groundcontrol-mcp",
   "requirements": [],
   "dependencies": [],
   "codeowners": [],

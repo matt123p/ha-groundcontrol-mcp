@@ -1,5 +1,9 @@
 # HA GroundControl MCP
 
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+
 A Home Assistant custom integration and HACS-compatible repository that exposes schema-only Home Assistant registry tools through a dedicated MCP HTTP server.
 
 ## Features
@@ -16,9 +20,22 @@ A Home Assistant custom integration and HACS-compatible repository that exposes 
 
 ## Installation
 
-1. Add this repository to HACS as a custom repository.
-2. Install the integration from HACS.
-3. Restart Home Assistant.
+If you already have HACS installed, click the badge below to add this repository automatically:
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=matt123p&repository=ha-groundcontrol-mcp&category=integration)
+
+Alternatively, add it manually:
+1. Go to **HACS** -> **Custom repositories** (three dots in top-right).
+2. Add `https://github.com/matt123p/ha-groundcontrol-mcp` as an **Integration** repository.
+3. Download the **HA GroundControl MCP** integration and restart Home Assistant.
+
+### Don't have HACS?
+HACS (Home Assistant Community Store) is a custom component manager. To install HACS, refer to the [HACS Installation Guide](https://hacs.xyz/docs/setup/prerequisites).
+
+## Configuration
+1. Go to **Settings** -> **Devices & Services** -> **+ Add Integration**.
+2. Search and select **HA GroundControl MCP** to set it up.
+
 
 ## Co-pilot / Antigravity Setup
 
