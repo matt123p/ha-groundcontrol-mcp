@@ -18,6 +18,6 @@ def test_integration_manifest_exists() -> None:
 
     payload = json.loads(integration_manifest.read_text(encoding="utf-8"))
     assert payload["domain"] == "ha_groundcontrol"
-    assert payload["version"] == "0.1.7"
+    assert payload["version"] == "0.1.8"
     assert payload["iot_class"] == "local_polling"
     assert payload["config_flow"] is True
