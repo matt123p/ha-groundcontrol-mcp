@@ -20,6 +20,9 @@ class GroundControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
 
+        await self.async_set_unique_id(DOMAIN)
+        self._abort_if_unique_id_configured()
+
         if user_input is None:
             return self.async_show_form(
                 step_id="user",
@@ -36,10 +39,14 @@ class GroundControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return GroundControlOptionsFlowHandler()
+        return GroundControlOptionsFlowHandler(config_entry)
 
 
 class GroundControlOptionsFlowHandler(config_entries.OptionsFlow):
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        super().__init__(config_entry)
 
     async def async_step_init(self, user_input=None):
         if user_input is None:

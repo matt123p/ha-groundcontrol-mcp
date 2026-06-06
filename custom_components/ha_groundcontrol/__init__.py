@@ -21,6 +21,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    if not entry.unique_id:
+        hass.config_entries.async_update_entry(entry, unique_id=DOMAIN)
+
     options = {**entry.data, **entry.options}
     host = options.get(CONF_LISTEN_HOST, DEFAULT_LISTEN_HOST)
     port = options.get(CONF_LISTEN_PORT, DEFAULT_LISTEN_PORT)
