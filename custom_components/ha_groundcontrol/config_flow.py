@@ -41,14 +41,10 @@ class GroundControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return GroundControlOptionsFlowHandler(config_entry)
+        return GroundControlOptionsFlowHandler()
 
 
 class GroundControlOptionsFlowHandler(config_entries.OptionsFlow):
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        super().__init__(config_entry)
 
     async def async_step_init(self, user_input=None):
         if user_input is None:
