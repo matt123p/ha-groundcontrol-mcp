@@ -1,0 +1,9 @@
+{
+  "name": "HA GroundControl MCP",
+  "content_in_root": true,
+  "domains": ["integration"],
+  "homeassistant": "2024.12.0",
+  "render_readme": true,
+  "zip_release": false,
+  "show_default_branch": true
+}
